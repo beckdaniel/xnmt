@@ -1,5 +1,5 @@
 import numbers
-from typing import Optional
+from typing import Optional, Tuple, Sequence
 
 import numpy as np
 import dynet as dy
@@ -288,6 +288,94 @@ class SimpleWordEmbedder(Embedder, Serializable):
       ret = dy.noise(ret, self.weight_noise)
     return ret
 
+
+class GraphEmbedder(Embedder, Serializable):
+  """
+  A set of word embedding matrices / lookup tables. Used mainly in the graph-based models.
+  (to allow separate embedding spaces for nodes and edges)
+
+  Args:
+    emb_dim: list of embedding dimensions
+    weight_noise: apply Gaussian noise with given standard deviation to embeddings
+    word_dropout: drop out word types with a certain probability, sampling word types on a per-sentence level, see https://arxiv.org/abs/1512.05287
+    fix_norm: fix the norm of word vectors to be radius r, see https://arxiv.org/abs/1710.01329
+    param_init: how to initialize lookup matrices
+    vocab_size: vocab size or None
+    vocab: vocab or None
+    yaml_path: Path of this embedder in the component hierarchy. Automatically set by the YAML deserializer.
+    src_reader: A reader for the source side. Automatically set by the YAML deserializer.
+    trg_reader: A reader for the target side. Automatically set by the YAML deserializer.
+  """
+
+  yaml_tag = '!GraphEmbedder'
+
+  @events.register_xnmt_handler
+  @serializable_init
+  def __init__(self,
+               node_emb_dim: numbers.Integral = Ref("exp_global.default_layer_dim"),
+               edge_emb_dim: numbers.Integral = Ref("exp_global.default_layer_dim"),
+               weight_noise: numbers.Real = Ref("exp_global.weight_noise", default=0.0),
+               word_dropout: numbers.Real = 0.0,
+               fix_norm: Optional[numbers.Real] = None,
+               param_init: param_initializers.ParamInitializer = Ref("exp_global.param_init", default=bare(
+                 param_initializers.GlorotInitializer)),
+               vocab_size: Optional[numbers.Integral] = None,
+               vocab: Optional[vocabs.Vocab] = None,
+               yaml_path=None,
+               src_reader: Optional[input_readers.InputReader] = Ref("model.src_reader", default=None),
+               trg_reader: Optional[input_readers.InputReader] = Ref("model.trg_reader", default=None)) -> None:
+    #print(f"embedder received param_init: {param_init}")
+    self.node_emb_dim = node_emb_dim
+    self.edge_emb_dim = edge_emb_dim
+    self.weight_noise = weight_noise
+    self.word_dropout = word_dropout
+    self.fix_norm = fix_norm
+    self.word_id_mask = None
+    self.train = False
+    param_collection = param_collections.ParamManager.my_params(self)
+    self.vocab_size = 200
+    #self.vocab_size = self.choose_vocab_size(vocab_size, vocab, yaml_path, src_reader, trg_reader)
+    self.save_processed_arg("vocab_size", self.vocab_size)
+    self.embeddings = param_collection.add_lookup_parameters((self.vocab_size, self.node_emb_dim),
+                                                             init=param_init.initializer((self.vocab_size, self.node_emb_dim), is_lookup=True))
+
+  @events.handle_xnmt_event
+  def on_set_train(self, val):
+    self.train = val
+
+  @events.handle_xnmt_event
+  def on_start_sent(self, src):
+    self.word_id_mask = None
+
+  def embed(self, x):
+    if self.train and self.word_dropout > 0.0 and self.word_id_mask is None:
+      batch_size = x.batch_size() if batchers.is_batched(x) else 1
+      self.word_id_mask = [set(np.random.choice(self.vocab_size, int(self.vocab_size * self.word_dropout), replace=False)) for _ in range(batch_size)]
+    # single mode
+    if not batchers.is_batched(x):
+      if self.train and self.word_id_mask and x in self.word_id_mask[0]:
+        ret = dy.zeros((self.emb_dim,))
+      else:
+        ret = self.embeddings[x]
+        if self.fix_norm is not None:
+          ret = dy.cdiv(ret, dy.l2_norm(ret))
+          if self.fix_norm != 1:
+            ret *= self.fix_norm
+    # minibatch mode
+    else:
+      ret = self.embeddings.batch(x)
+      if self.fix_norm is not None:
+        ret = dy.cdiv(ret, dy.l2_norm(ret))
+        if self.fix_norm != 1:
+          ret *= self.fix_norm
+      if self.train and self.word_id_mask and any(x[i] in self.word_id_mask[i] for i in range(x.batch_size())):
+        dropout_mask = dy.inputTensor(np.transpose([[0.0]*self.emb_dim if x[i] in self.word_id_mask[i] else [1.0]*self.emb_dim for i in range(x.batch_size())]), batched=True)
+        ret = dy.cmult(ret, dropout_mask)
+    if self.train and self.weight_noise > 0.0:
+      ret = dy.noise(ret, self.weight_noise)
+    return ret
+
+  
 class NoopEmbedder(Embedder, Serializable):
   """
   This embedder performs no lookups but only passes through the inputs.

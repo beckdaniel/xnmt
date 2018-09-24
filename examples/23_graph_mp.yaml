@@ -18,11 +18,14 @@
           vocab: !Vocab {vocab_file: examples/data/head.ja.vocab}
         - !AdjListReader
           vocab: !Vocab {vocab_file: examples/data/edge.vocab}
-      vocab: !Vocab {vocab_file: examples/data/head.ja.vocab}
+      #vocab: !Vocab {vocab_file: examples/data/head.ja.vocab}
     trg_reader: !PlainTextReader
       vocab: !Vocab {vocab_file: examples/data/head.en.vocab}
-    src_embedder: !SimpleWordEmbedder
-      emb_dim: 512
+#    src_embedder: !SimpleWordEmbedder
+#      emb_dim: 512
+    src_embedder: !GraphEmbedder
+      node_emb_dim: 512
+      edge_emb_dim: 32
     encoder: !BiLSTMSeqTransducer
       layers: 1
     attender: !MlpAttender

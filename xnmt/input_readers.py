@@ -1,7 +1,7 @@
 from itertools import zip_longest
 from functools import lru_cache
 import ast
-from typing import Iterator, Optional, Sequence, Union, Tuple
+from typing import Iterator, Optional, Sequence, Union
 import numbers
 
 import numpy as np
@@ -135,34 +135,27 @@ class PlainTextReader(BaseTextReader, Serializable):
 
 class AdjListReader(BaseTextReader, Serializable):
   """
-  Reads an adjacency list, assuming a parallel reader for the nodes
+  Reads an adjacency list, using space-separated tuples with format "(%d,%d,%s)". First and second elements are indices and the third element is the edge label. The indices refer to the nodes, which are read from a separate file (using probably a PlainTextReader). This means that this reader is useless on its own and should always be used in conjunction with another reader.
+  TODO: turn this into a reader on its own by putting words instead of indices? Terrible idea for dense graphs but could be made optional? Or join the node labels and edges into a single TAB-separated file?
 
   Args:
-    vocab: Vocabulary to convert string tokens to integer ids. If not given, plain text will be assumed to contain
-           space-separated integer ids.
-    read_sent_len: if set, read the length of each sentence instead of the sentence itself. EOS is not counted.
-    output_proc: output processors to revert the created sentences back to a readable string
+    vocab: Vocabulary containing **edge** labels, mapping them to integer ids. If not given, edges will be assumed to contain integer ids as the label.
   """
   yaml_tag = '!AdjListReader'
  
   @serializable_init
-  def __init__(self, vocab: Optional[Vocab] = None, read_sent_len: bool = False, output_proc = []):
+  def __init__(self, vocab: Optional[Vocab] = None):
     self.vocab = vocab
-    self.read_sent_len = read_sent_len
-    self.output_procs = output.OutputProcessor.get_output_processor(output_proc)
 
   def read_sent(self, line, idx):
     if self.vocab:
       convert_fct = self.vocab.convert
     else:
       convert_fct = convert_int
-    if self.read_sent_len:
-      return ScalarSentence(idx=idx, value=len(line.strip().split()))
-    else:
-      return SimpleSentence(idx=idx,
-                            words=[convert_fct(word) for word in line.strip().split()] + [Vocab.ES],
-                            vocab=self.vocab,
-                            output_procs=self.output_procs)
+    return SimpleSentence(idx=idx,
+                          words=[convert_fct(word) for word in line.strip().split()] + [Vocab.ES],
+                          vocab=self.vocab,
+                          output_procs=None)
 
   def vocab_size(self):
     return len(self.vocab)
@@ -187,6 +180,7 @@ class CompoundReader(InputReader, Serializable):
     if len(readers) < 2: raise ValueError("need at least two readers")
     self.readers = readers
     if vocab: self.vocab = vocab
+    
   def read_sents(self, filename: Union[str,Sequence[str]], filter_ids: Sequence[numbers.Integral] = None) \
           -> Iterator[sent.Sentence]:
     if isinstance(filename, str): filename = [filename] * len(self.readers)
@@ -198,31 +192,14 @@ class CompoundReader(InputReader, Serializable):
         yield CompoundSentence(sents=sub_sents)
       except StopIteration:
         return
+      
   def count_sents(self, filename: str) -> int:
     return self.readers[0].count_sents(filename if isinstance(filename,str) else filename[0])
+  
   def needs_reload(self) -> bool:
     return any(reader.needs_reload() for reader in self.readers)
 
 
-class GraphReader(CompoundReader):
-  """
-  A graph reader is a compound reader with two inputs: a list of nodes and an adjacency list and an extra vocab file for the edges.
-
-  Args:
-    readers: list of input readers to use
-    vocab: not used by this reader, but some parent components may require access to the vocab.
-  """
-  yaml_tag = "!GraphReader"
-  @serializable_init
-  def __init__(self, readers:Sequence[InputReader],
-               vocab: Optional[Vocab] = None,
-               edge_vocab: Optional[Vocab] = None,) -> None:
-    if len(readers) != 2: raise ValueError("needs exactly two readers")
-    self.readers = readers
-    if vocab: self.vocab = vocab
-    if edge_vocab: self.edge_vocab = vocab
-    
-  
 class SentencePieceTextReader(BaseTextReader, Serializable):
   """
   Read in text and segment it with sentencepiece. Optionally perform sampling
