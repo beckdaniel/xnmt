@@ -1,7 +1,7 @@
 from itertools import zip_longest
 from functools import lru_cache
 import ast
-from typing import Iterator, Optional, Sequence, Union
+from typing import Iterator, Optional, Sequence, Union, Tuple
 import numbers
 
 import numpy as np
@@ -132,6 +132,42 @@ class PlainTextReader(BaseTextReader, Serializable):
   def vocab_size(self):
     return len(self.vocab)
 
+
+class AdjListReader(BaseTextReader, Serializable):
+  """
+  Reads an adjacency list, assuming a parallel reader for the nodes
+
+  Args:
+    vocab: Vocabulary to convert string tokens to integer ids. If not given, plain text will be assumed to contain
+           space-separated integer ids.
+    read_sent_len: if set, read the length of each sentence instead of the sentence itself. EOS is not counted.
+    output_proc: output processors to revert the created sentences back to a readable string
+  """
+  yaml_tag = '!AdjListReader'
+ 
+  @serializable_init
+  def __init__(self, vocab: Optional[Vocab] = None, read_sent_len: bool = False, output_proc = []):
+    self.vocab = vocab
+    self.read_sent_len = read_sent_len
+    self.output_procs = output.OutputProcessor.get_output_processor(output_proc)
+
+  def read_sent(self, line, idx):
+    if self.vocab:
+      convert_fct = self.vocab.convert
+    else:
+      convert_fct = convert_int
+    if self.read_sent_len:
+      return ScalarSentence(idx=idx, value=len(line.strip().split()))
+    else:
+      return SimpleSentence(idx=idx,
+                            words=[convert_fct(word) for word in line.strip().split()] + [Vocab.ES],
+                            vocab=self.vocab,
+                            output_procs=self.output_procs)
+
+  def vocab_size(self):
+    return len(self.vocab)
+
+  
 class CompoundReader(InputReader, Serializable):
   """
   A compound reader reads inputs using several input readers at the same time.
@@ -168,6 +204,25 @@ class CompoundReader(InputReader, Serializable):
     return any(reader.needs_reload() for reader in self.readers)
 
 
+class GraphReader(CompoundReader):
+  """
+  A graph reader is a compound reader with two inputs: a list of nodes and an adjacency list and an extra vocab file for the edges.
+
+  Args:
+    readers: list of input readers to use
+    vocab: not used by this reader, but some parent components may require access to the vocab.
+  """
+  yaml_tag = "!GraphReader"
+  @serializable_init
+  def __init__(self, readers:Sequence[InputReader],
+               vocab: Optional[Vocab] = None,
+               edge_vocab: Optional[Vocab] = None,) -> None:
+    if len(readers) != 2: raise ValueError("needs exactly two readers")
+    self.readers = readers
+    if vocab: self.vocab = vocab
+    if edge_vocab: self.edge_vocab = vocab
+    
+  
 class SentencePieceTextReader(BaseTextReader, Serializable):
   """
   Read in text and segment it with sentencepiece. Optionally perform sampling
