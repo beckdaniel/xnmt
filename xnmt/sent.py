@@ -292,40 +292,72 @@ class GraphSentence(ReadableSentence):
     return (nodes_ret, edges_ret, indices_ret)
 
   def sent_len(self):
-    return len(self.words)
+    """
+    Returning the max because I think this is used for padding purposes...
+    """
+    return max(len(self.nodes), len(self.edges))
 
   @functools.lru_cache(maxsize=1)
   def len_unpadded(self):
-    return sum(x != self.pad_token for x in self.words)
+    return max(sum(x != self.pad_token for x in self.nodes),
+               sum(x != self.pad_token for x in self.edges))
 
   def create_padded_sent(self, pad_len: numbers.Integral) -> 'SimpleSentence':
-    if pad_len == 0:
+    """
+    The padding depends on which one is longer: the node list or the edge list.
+    """
+    diff = len(self.nodes) - len(self.edges)
+    if pad_len == 0 and diff == 0:
       return self
-    return self.sent_with_new_words(self.words + [self.pad_token] * pad_len)
+    if diff > 0: # nodes are longer (mostly the case)
+      new_nodes = self.nodes + ([self.pad_token] * pad_len)
+      new_edges = self.edges + ([self.pad_token] * (pad_len + diff))
+      ####
+      # TODO: this is so wrong...
+      # we need somehow to tell the network that these indices should be ignored
+      # having "-1" might be enough but it can also mistakenly index the last node...
+      new_indices = self.indices + ([(-1, -1)] * (pad_len + diff))
+    else:
+      new_nodes = self.nodes + ([self.pad_token] * (pad_len + diff))
+      new_edges = self.edges + ([self.pad_token] * pad_len)
+      new_indices = self.indices + ([(-1, -1)] * pad_len)
+    return GraphSentence(nodes=new_nodes, edges=new_edges, indices=new_indices,
+                         idx=self.idx, node_vocab=self.node_vocab,
+                         edge_vocab=self.edge_vocab,
+                         score=self.score, output_procs=self.output_procs,
+                         pad_token=self.pad_token)
+
+    #return self.sent_with_new_words(self.words + [self.pad_token] * pad_len)
 
   def create_truncated_sent(self, trunc_len: numbers.Integral) -> 'SimpleSentence':
     if trunc_len == 0:
       return self
     return self.sent_with_words(self.words[:-trunc_len])
 
+ 
   def str_tokens(self, exclude_ss_es=True, exclude_unk=False, exclude_padded=True, **kwargs) -> List[str]:
+    """
+    TODO: output edges as well...
+    """
     exclude_set = set()
     if exclude_ss_es:
       exclude_set.add(Vocab.SS)
       exclude_set.add(Vocab.ES)
-    if exclude_unk: exclude_set.add(self.vocab.unk_token)
+    if exclude_unk:
+      exclude_set.add(self.node_vocab.unk_token)
+      exclude_set.add(self.edge_vocab.unk_token)
     # TODO: exclude padded if requested (i.e., all </s> tags except for the first)
-    ret_toks =  [w for w in self.words if w not in exclude_set]
-    if self.vocab: return [self.vocab[w] for w in ret_toks]
-    else: return [str(w) for w in ret_toks]
+    ret_toks =  [n for n in self.nodes if n not in exclude_set]
+    if self.node_vocab: return [self.node_vocab[n] for n in ret_toks]
+    else: return [str(n) for n in ret_toks]
 
-  def sent_with_new_words(self, new_words):
-    return SimpleSentence(words=new_words,
-                          idx=self.idx,
-                          vocab=self.vocab,
-                          score=self.score,
-                          output_procs=self.output_procs,
-                          pad_token=self.pad_token)
+  # def sent_with_new_words(self, new_words):
+  #   return SimpleSentence(words=new_words,
+  #                         idx=self.idx,
+  #                         vocab=self.vocab,
+  #                         score=self.score,
+  #                         output_procs=self.output_procs,
+  #                         pad_token=self.pad_token)
 
   
 class ArraySentence(Sentence):
