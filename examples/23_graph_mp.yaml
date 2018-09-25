@@ -52,7 +52,9 @@
     trg_file: examples/data/head.en
     dev_tasks:
       - !LossEvalTask
-        src_file: examples/data/head.ja
+        src_file:
+          - examples/data/head.ja
+          - examples/data/edges.ja
         ref_file: examples/data/head.en
   # final evaluation
   evaluate:

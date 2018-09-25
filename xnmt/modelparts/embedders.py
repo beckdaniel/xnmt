@@ -49,7 +49,10 @@ class Embedder(object):
       for word_i in range(seq_len):
         batch = batchers.mark_as_batch([single_sent[word_i] for single_sent in x])
         embeddings.append(self.embed(batch))
-
+    #####
+    #print(embeddings)
+    #print(embeddings[0].npvalue().shape)
+    #####
     return expression_seqs.ExpressionSequence(expr_list=embeddings, mask=x.mask if batchers.is_batched(x) else None)
 
   def choose_vocab(self, vocab: vocabs.Vocab, yaml_path, src_reader: input_readers.InputReader, trg_reader: input_readers.InputReader):
@@ -366,45 +369,51 @@ class GraphEmbedder(Embedder, Serializable):
     self.word_id_mask = None
 
   def embed_sent(self, x):
-    if not batchers.is_batched(x):
-      logger.debug('NOT BATCHED')
-    else:
-      logger.debug('DEBUG EMBS')
-      logger.debug(x)
-      logger.debug(x[0].nodes)
-      logger.debug(x[0].edges)
-      logger.debug(x[0].indices)
-      logger.debug('END EMBS')
-
-  def embed(self, x):
-    #logger.debug('DEBUG EMBS')
-    #logger.debug(x)
-    if self.train and self.word_dropout > 0.0 and self.word_id_mask is None:
-      batch_size = x.batch_size() if batchers.is_batched(x) else 1
-      self.word_id_mask = [set(np.random.choice(self.vocab_size, int(self.vocab_size * self.word_dropout), replace=False)) for _ in range(batch_size)]
-    # single mode
-    if not batchers.is_batched(x):
-      if self.train and self.word_id_mask and x in self.word_id_mask[0]:
-        ret = dy.zeros((self.emb_dim,))
-      else:
-        ret = self.embeddings[x]
-        if self.fix_norm is not None:
-          ret = dy.cdiv(ret, dy.l2_norm(ret))
-          if self.fix_norm != 1:
-            ret *= self.fix_norm
-    # minibatch mode
-    else:
-      ret = self.embeddings.batch(x)
-      if self.fix_norm is not None:
-        ret = dy.cdiv(ret, dy.l2_norm(ret))
-        if self.fix_norm != 1:
-          ret *= self.fix_norm
-      if self.train and self.word_id_mask and any(x[i] in self.word_id_mask[i] for i in range(x.batch_size())):
-        dropout_mask = dy.inputTensor(np.transpose([[0.0]*self.emb_dim if x[i] in self.word_id_mask[i] else [1.0]*self.emb_dim for i in range(x.batch_size())]), batched=True)
-        ret = dy.cmult(ret, dropout_mask)
-    if self.train and self.weight_noise > 0.0:
-      ret = dy.noise(ret, self.weight_noise)
-    return ret
+    if len(x) != 1:
+      logger.error('BATCH NOT IMPLEMENTED!')
+      sys.exit(1)
+    #node_embs = self.node_embeddings.batch(x[0].nodes)
+    node_embs = []
+    for node in x[0].nodes:
+      node_embs.append(self.node_embeddings[node])
+    edge_embs = self.edge_embeddings.batch(x[0].edges)
+    #return node_embs#, edge_embs
+    #print(self.node_embeddings.as_array())
+    #print(node_embs)
+    #print(node_embs.npvalue().shape)
+    #node_embs = dy.transpose(node_embs)
+    return expression_seqs.ExpressionSequence(expr_list=node_embs, mask=x.mask if batchers.is_batched(x) else None)
+    #return expression_seqs.ExpressionSequence(expr_list=[node_embs], mask=None)
+      
+  # def embed(self, x):
+  #   #logger.debug('DEBUG EMBS')
+  #   #logger.debug(x)
+  #   if self.train and self.word_dropout > 0.0 and self.word_id_mask is None:
+  #     batch_size = x.batch_size() if batchers.is_batched(x) else 1
+  #     self.word_id_mask = [set(np.random.choice(self.vocab_size, int(self.vocab_size * self.word_dropout), replace=False)) for _ in range(batch_size)]
+  #   # single mode
+  #   if not batchers.is_batched(x):
+  #     if self.train and self.word_id_mask and x in self.word_id_mask[0]:
+  #       ret = dy.zeros((self.emb_dim,))
+  #     else:
+  #       ret = self.embeddings[x]
+  #       if self.fix_norm is not None:
+  #         ret = dy.cdiv(ret, dy.l2_norm(ret))
+  #         if self.fix_norm != 1:
+  #           ret *= self.fix_norm
+  #   # minibatch mode
+  #   else:
+  #     ret = self.embeddings.batch(x)
+  #     if self.fix_norm is not None:
+  #       ret = dy.cdiv(ret, dy.l2_norm(ret))
+  #       if self.fix_norm != 1:
+  #         ret *= self.fix_norm
+  #     if self.train and self.word_id_mask and any(x[i] in self.word_id_mask[i] for i in range(x.batch_size())):
+  #       dropout_mask = dy.inputTensor(np.transpose([[0.0]*self.emb_dim if x[i] in self.word_id_mask[i] else [1.0]*self.emb_dim for i in range(x.batch_size())]), batched=True)
+  #       ret = dy.cmult(ret, dropout_mask)
+  #   if self.train and self.weight_noise > 0.0:
+  #     ret = dy.noise(ret, self.weight_noise)
+  #   return ret
 
   
 class NoopEmbedder(Embedder, Serializable):
