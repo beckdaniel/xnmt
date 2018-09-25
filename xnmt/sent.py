@@ -327,13 +327,10 @@ class GraphSentence(ReadableSentence):
                          score=self.score, output_procs=self.output_procs,
                          pad_token=self.pad_token)
 
-    #return self.sent_with_new_words(self.words + [self.pad_token] * pad_len)
-
   def create_truncated_sent(self, trunc_len: numbers.Integral) -> 'SimpleSentence':
     if trunc_len == 0:
       return self
     return self.sent_with_words(self.words[:-trunc_len])
-
  
   def str_tokens(self, exclude_ss_es=True, exclude_unk=False, exclude_padded=True, **kwargs) -> List[str]:
     """
@@ -347,17 +344,20 @@ class GraphSentence(ReadableSentence):
       exclude_set.add(self.node_vocab.unk_token)
       exclude_set.add(self.edge_vocab.unk_token)
     # TODO: exclude padded if requested (i.e., all </s> tags except for the first)
-    ret_toks =  [n for n in self.nodes if n not in exclude_set]
-    if self.node_vocab: return [self.node_vocab[n] for n in ret_toks]
-    else: return [str(n) for n in ret_toks]
-
-  # def sent_with_new_words(self, new_words):
-  #   return SimpleSentence(words=new_words,
-  #                         idx=self.idx,
-  #                         vocab=self.vocab,
-  #                         score=self.score,
-  #                         output_procs=self.output_procs,
-  #                         pad_token=self.pad_token)
+    node_ret_toks =  [n for n in self.nodes if n not in exclude_set]
+    edge_ret_toks =  [e for e in self.edges if e not in exclude_set]
+    if self.node_vocab:
+      node_ret_toks = [self.node_vocab[n] for n in node_ret_toks]
+    else:
+      node_ret_toks = [str(n) for n in node_ret_toks]
+    if self.edge_vocab:
+      edge_ret_toks = [self.edge_vocab[e] for e in edge_ret_toks]
+    else:
+      edge_ret_toks = [str(e) for e in edge_ret_toks]
+    return node_ret_toks + ' ||| ' + edge_ret_toks
+                      
+    #if self.node_vocab: return [self.node_vocab[n] for n in ret_toks]
+    #else: return [str(n) for n in ret_toks]
 
   
 class ArraySentence(Sentence):
