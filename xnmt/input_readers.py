@@ -178,11 +178,14 @@ class GraphReader(InputReader, Serializable):
   @serializable_init
   def __init__(self, #readers:Tuple[BaseTextReader, BaseTextReader],
                node_vocab: Optional[Vocab] = None,
-               edge_vocab: Optional[Vocab] = None) -> None:
+               edge_vocab: Optional[Vocab] = None,
+               output_proc = []) -> None:
     #self.node_reader = readers[0]
     #self.adj_reader = readers[1]
     if node_vocab: self.node_vocab = node_vocab
     if edge_vocab: self.edge_vocab = edge_vocab
+    self.output_procs = output.OutputProcessor.get_output_processor(output_proc)
+
     
   # def read_sent(self, line, idx):
   #   if self.vocab:
@@ -207,10 +210,20 @@ class GraphReader(InputReader, Serializable):
          open(filename[1], encoding='utf-8') as adj_file:
       # Apparently, zip works with generators
       for nodes, adj in zip(nodes_file, adj_file):
-        enc_nodes = [self.node_vocab.convert(node) for node in nodes]
+        #print(nodes)
+        #print(adj)
+        enc_nodes = [self.node_vocab.convert(node) for node in nodes.strip().split()]
         edges, indices = self._split_adj(adj)
+        # print(len(nodes))
+        # print(len(enc_nodes))
+        #print(enc_nodes)
+        #print(edges)
+        #print(indices)
         try:
-          yield GraphSentence(enc_nodes, edges, indices)
+          yield GraphSentence(nodes=enc_nodes, edges=edges, indices=indices,
+                              node_vocab=self.node_vocab,
+                              edge_vocab=self.edge_vocab,
+                              output_procs=self.output_procs)
         except StopIteration:
           return
 

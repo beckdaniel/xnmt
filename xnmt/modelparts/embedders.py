@@ -107,7 +107,10 @@ class Embedder(object):
       if src_reader is None or getattr(src_reader,"vocab",None) is None:
         raise ValueError("Could not determine src_embedder's size. "
                          "Please set its vocab_size or vocab member explicitly, or specify the vocabulary of src_reader ahead of time.")
-      return len(src_reader.vocab)
+      if getattr(src_reader,"vocab",None) is not None:
+        return len(src_reader.vocab)
+      if getattr(src_reader,"node_vocab",None) is not None:
+        return len(src_reader.vocab)
     elif "trg_embedder" in yaml_path or "output_projector" in yaml_path:
       if trg_reader is None or trg_reader.vocab is None:
         raise ValueError("Could not determine target embedder's size. "
@@ -291,17 +294,20 @@ class SimpleWordEmbedder(Embedder, Serializable):
 
 class GraphEmbedder(Embedder, Serializable):
   """
-  A set of word embedding matrices / lookup tables. Used mainly in the graph-based models.
+  A set of two embedding matrices / lookup tables. Used mainly in the graph-based models.
   (to allow separate embedding spaces for nodes and edges)
 
   Args:
-    emb_dim: list of embedding dimensions
+    node_emb_dim: embedding dimensionality for nodes
+    edge_emb_dim: embedding dimensionality for edges
     weight_noise: apply Gaussian noise with given standard deviation to embeddings
     word_dropout: drop out word types with a certain probability, sampling word types on a per-sentence level, see https://arxiv.org/abs/1512.05287
     fix_norm: fix the norm of word vectors to be radius r, see https://arxiv.org/abs/1710.01329
     param_init: how to initialize lookup matrices
-    vocab_size: vocab size or None
-    vocab: vocab or None
+    node_vocab_size: vocab size or None
+    node_vocab: vocab or None
+    edge_vocab_size: vocab size or None
+    edge_vocab: vocab or None
     yaml_path: Path of this embedder in the component hierarchy. Automatically set by the YAML deserializer.
     src_reader: A reader for the source side. Automatically set by the YAML deserializer.
     trg_reader: A reader for the target side. Automatically set by the YAML deserializer.
@@ -335,9 +341,13 @@ class GraphEmbedder(Embedder, Serializable):
     self.word_id_mask = None
     self.train = False
     param_collection = param_collections.ParamManager.my_params(self)
-    self.node_vocab_size = 200
-    self.edge_vocab_size = 3
-    #self.vocab_size = self.choose_vocab_size(vocab_size, vocab, yaml_path, src_reader, trg_reader)
+    #self.node_vocab_size = 200
+    #self.edge_vocab_size = 3
+    #print(node_vocab_size)
+    #print(node_vocab)
+    #self.node_vocab_size = self.choose_vocab_size(node_vocab_size, node_vocab, yaml_path, src_reader, trg_reader)
+    self.node_vocab_size = len(src_reader.node_vocab)
+    self.edge_vocab_size = len(src_reader.edge_vocab)
     self.save_processed_arg("node_vocab_size", self.node_vocab_size)
     self.save_processed_arg("edge_vocab_size", self.edge_vocab_size)
     self.node_embeddings = param_collection.add_lookup_parameters((self.node_vocab_size, self.node_emb_dim),
@@ -356,7 +366,8 @@ class GraphEmbedder(Embedder, Serializable):
     self.word_id_mask = None
 
   def embed(self, x):
-    print(x)
+    logger.debug('DEBUG EMBS')
+    logger.debug(x)
     if self.train and self.word_dropout > 0.0 and self.word_id_mask is None:
       batch_size = x.batch_size() if batchers.is_batched(x) else 1
       self.word_id_mask = [set(np.random.choice(self.vocab_size, int(self.vocab_size * self.word_dropout), replace=False)) for _ in range(batch_size)]

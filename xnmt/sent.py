@@ -278,18 +278,21 @@ class GraphSentence(ReadableSentence):
     self.node_vocab = node_vocab
     self.edge_vocab = edge_vocab
 
-  def __getitem__(self, key):
-    #ret = self.words[key]
-    nodes_ret = self.nodes[key]
-    edges_ret = self.edges[key]
-    indices_ret = self.indices[key]
-    if isinstance(nodes_ret, list):  # support for slicing
-      return GraphSentence(nodes=nodes_ret, edges=edges_ret, indices=indices_ret,
-                           idx=self.idx, node_vocab=self.node_vocab,
-                           edge_vocab=self.edge_vocab,
-                           score=self.score, output_procs=self.output_procs,
-                           pad_token=self.pad_token)
-    return (nodes_ret, edges_ret, indices_ret)
+  # def __getitem__(self, key):
+  #   #ret = self.words[key]
+  #   nodes_ret = self.nodes[key]
+  #   edges_ret = self.edges[key]
+  #   indices_ret = self.indices[key]
+  #   print(nodes_ret)
+  #   print(edges_ret)
+  #   print(indices_ret)
+  #   if isinstance(nodes_ret, list):  # support for slicing
+  #     return GraphSentence(nodes=nodes_ret, edges=edges_ret, indices=indices_ret,
+  #                          idx=self.idx, node_vocab=self.node_vocab,
+  #                          edge_vocab=self.edge_vocab,
+  #                          score=self.score, output_procs=self.output_procs,
+  #                          pad_token=self.pad_token)
+  #   return (nodes_ret, edges_ret, indices_ret)
 
   def sent_len(self):
     """
@@ -348,13 +351,15 @@ class GraphSentence(ReadableSentence):
     edge_ret_toks =  [e for e in self.edges if e not in exclude_set]
     if self.node_vocab:
       node_ret_toks = [self.node_vocab[n] for n in node_ret_toks]
+      print(self.nodes)
+      print(node_ret_toks)
     else:
       node_ret_toks = [str(n) for n in node_ret_toks]
     if self.edge_vocab:
       edge_ret_toks = [self.edge_vocab[e] for e in edge_ret_toks]
     else:
       edge_ret_toks = [str(e) for e in edge_ret_toks]
-    return node_ret_toks + ' ||| ' + edge_ret_toks
+    return node_ret_toks + ['|||'] + edge_ret_toks
                       
     #if self.node_vocab: return [self.node_vocab[n] for n in ret_toks]
     #else: return [str(n) for n in ret_toks]
