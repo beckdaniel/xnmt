@@ -365,9 +365,20 @@ class GraphEmbedder(Embedder, Serializable):
   def on_start_sent(self, src):
     self.word_id_mask = None
 
+  def embed_sent(self, x):
+    if not batchers.is_batched(x):
+      logger.debug('NOT BATCHED')
+    else:
+      logger.debug('DEBUG EMBS')
+      logger.debug(x)
+      logger.debug(x[0].nodes)
+      logger.debug(x[0].edges)
+      logger.debug(x[0].indices)
+      logger.debug('END EMBS')
+
   def embed(self, x):
-    logger.debug('DEBUG EMBS')
-    logger.debug(x)
+    #logger.debug('DEBUG EMBS')
+    #logger.debug(x)
     if self.train and self.word_dropout > 0.0 and self.word_id_mask is None:
       batch_size = x.batch_size() if batchers.is_batched(x) else 1
       self.word_id_mask = [set(np.random.choice(self.vocab_size, int(self.vocab_size * self.word_dropout), replace=False)) for _ in range(batch_size)]

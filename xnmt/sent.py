@@ -351,8 +351,8 @@ class GraphSentence(ReadableSentence):
     edge_ret_toks =  [e for e in self.edges if e not in exclude_set]
     if self.node_vocab:
       node_ret_toks = [self.node_vocab[n] for n in node_ret_toks]
-      print(self.nodes)
-      print(node_ret_toks)
+      #print(self.nodes)
+      #print(node_ret_toks)
     else:
       node_ret_toks = [str(n) for n in node_ret_toks]
     if self.edge_vocab:
