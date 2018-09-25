@@ -1,7 +1,7 @@
 from itertools import zip_longest
 from functools import lru_cache
 import ast
-from typing import Iterator, Optional, Sequence, Union
+from typing import Iterator, Optional, Sequence, Union, Tuple
 import numbers
 
 import numpy as np
@@ -13,7 +13,7 @@ with warnings.catch_warnings():
 
 from xnmt import logger
 
-from xnmt.sent import SimpleSentence, CompoundSentence, ArraySentence, ScalarSentence, SegmentedSentence
+from xnmt.sent import SimpleSentence, CompoundSentence, ArraySentence, ScalarSentence, SegmentedSentence, GraphSentence
 from xnmt.persistence import serializable_init, Serializable
 from xnmt.events import register_xnmt_handler, handle_xnmt_event
 from xnmt import sent
@@ -133,6 +133,10 @@ class PlainTextReader(BaseTextReader, Serializable):
     return len(self.vocab)
 
 
+################################################
+################################################
+
+
 class AdjListReader(BaseTextReader, Serializable):
   """
   Reads an adjacency list, using space-separated tuples with format "(%d,%d,%s)". First and second elements are indices and the third element is the edge label. The indices refer to the nodes, which are read from a separate file (using probably a PlainTextReader). This means that this reader is useless on its own and should always be used in conjunction with another reader.
@@ -159,6 +163,83 @@ class AdjListReader(BaseTextReader, Serializable):
 
   def vocab_size(self):
     return len(self.vocab)
+
+  
+class GraphReader(InputReader, Serializable):
+  """
+  Reads two files, one with nodes and a second one with adjacency lists, using space-separated tuples with format "(%d,%d,%s)". First and second elements are indices and the third element is the edge label. The indices refer to the nodes, which are read from a separate file (using probably a PlainTextReader). This means that this reader is useless on its own and should always be used in conjunction with another reader.
+  TODO: turn this into a reader on its own by putting words instead of indices? Terrible idea for dense graphs but could be made optional? Or join the node labels and edges into a single TAB-separated file?
+
+  Args:
+    vocab: Vocabulary containing **edge** labels, mapping them to integer ids. If not given, edges will be assumed to contain integer ids as the label.
+  """
+  yaml_tag = '!GraphReader'
+
+  @serializable_init
+  def __init__(self, #readers:Tuple[BaseTextReader, BaseTextReader],
+               node_vocab: Optional[Vocab] = None,
+               edge_vocab: Optional[Vocab] = None) -> None:
+    #self.node_reader = readers[0]
+    #self.adj_reader = readers[1]
+    if node_vocab: self.node_vocab = node_vocab
+    if edge_vocab: self.edge_vocab = edge_vocab
+    
+  # def read_sent(self, line, idx):
+  #   if self.vocab:
+  #     convert_fct = self.vocab.convert
+  #   else:
+  #     convert_fct = convert_int
+  #   if self.read_sent_len:
+  #     return ScalarSentence(idx=idx, value=len(line.strip().split()))
+  #   else:
+  #     return SimpleSentence(idx=idx,
+  #                           words=[convert_fct(word) for word in line.strip().split()] + [Vocab.ES],
+  #                           vocab=self.vocab,
+  #                           output_procs=self.output_procs)
+
+
+  def vocab_size(self):
+    return (len(self.node_vocab), len(self.edge_vocab))
+
+  def read_sents(self, filename: Tuple[str, str],
+                 filter_ids: Sequence[numbers.Integral] = None) -> Iterator[sent.Sentence]:
+    with open(filename[0], encoding='utf-8') as nodes_file, \
+         open(filename[1], encoding='utf-8') as adj_file:
+      # Apparently, zip works with generators
+      for nodes, adj in zip(nodes_file, adj_file):
+        enc_nodes = [self.node_vocab.convert(node) for node in nodes]
+        edges, indices = self._split_adj(adj)
+        try:
+          yield GraphSentence(enc_nodes, edges, indices)
+        except StopIteration:
+          return
+
+  def _split_adj(self, adj):
+    """
+    Split the adjacency list into edge labels and indices.
+    """
+    tuples = adj.split()
+    edges = []
+    indices = []
+    for tup in tuples:
+      src_id, trg_id, label = tup.strip('()').split(',')
+      edges.append(self.edge_vocab.convert(label))
+      indices.append((int(src_id), int(trg_id)))
+    return edges, indices
+        
+  @lru_cache(maxsize=128)      
+  def count_sents(self, filename) -> int:
+    newlines = 0
+    with open(filename[0], 'r+b') as f:
+      for _ in f:
+        newlines += 1
+    return newlines
+  
+#  def needs_reload(self) -> bool:
+#    return any(reader.needs_reload() for reader in self.readers)
+
+################################
+  
 
   
 class CompoundReader(InputReader, Serializable):

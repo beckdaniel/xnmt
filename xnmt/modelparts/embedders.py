@@ -319,8 +319,10 @@ class GraphEmbedder(Embedder, Serializable):
                fix_norm: Optional[numbers.Real] = None,
                param_init: param_initializers.ParamInitializer = Ref("exp_global.param_init", default=bare(
                  param_initializers.GlorotInitializer)),
-               vocab_size: Optional[numbers.Integral] = None,
-               vocab: Optional[vocabs.Vocab] = None,
+               node_vocab_size: Optional[numbers.Integral] = None,
+               node_vocab: Optional[vocabs.Vocab] = None,
+               edge_vocab_size: Optional[numbers.Integral] = None,
+               edge_vocab: Optional[vocabs.Vocab] = None,
                yaml_path=None,
                src_reader: Optional[input_readers.InputReader] = Ref("model.src_reader", default=None),
                trg_reader: Optional[input_readers.InputReader] = Ref("model.trg_reader", default=None)) -> None:
@@ -333,12 +335,18 @@ class GraphEmbedder(Embedder, Serializable):
     self.word_id_mask = None
     self.train = False
     param_collection = param_collections.ParamManager.my_params(self)
-    self.vocab_size = 200
+    self.node_vocab_size = 200
+    self.edge_vocab_size = 3
     #self.vocab_size = self.choose_vocab_size(vocab_size, vocab, yaml_path, src_reader, trg_reader)
-    self.save_processed_arg("vocab_size", self.vocab_size)
-    self.embeddings = param_collection.add_lookup_parameters((self.vocab_size, self.node_emb_dim),
-                                                             init=param_init.initializer((self.vocab_size, self.node_emb_dim), is_lookup=True))
+    self.save_processed_arg("node_vocab_size", self.node_vocab_size)
+    self.save_processed_arg("edge_vocab_size", self.edge_vocab_size)
+    self.node_embeddings = param_collection.add_lookup_parameters((self.node_vocab_size, self.node_emb_dim),
+                                                                  init=param_init.initializer((self.node_vocab_size, self.node_emb_dim), is_lookup=True))
+    self.edge_embeddings = param_collection.add_lookup_parameters((self.edge_vocab_size, self.edge_emb_dim),
+                                                             init=param_init.initializer((self.edge_vocab_size, self.edge_emb_dim), is_lookup=True))
 
+
+    
   @events.handle_xnmt_event
   def on_set_train(self, val):
     self.train = val
@@ -348,6 +356,7 @@ class GraphEmbedder(Embedder, Serializable):
     self.word_id_mask = None
 
   def embed(self, x):
+    print(x)
     if self.train and self.word_dropout > 0.0 and self.word_id_mask is None:
       batch_size = x.batch_size() if batchers.is_batched(x) else 1
       self.word_id_mask = [set(np.random.choice(self.vocab_size, int(self.vocab_size * self.word_dropout), replace=False)) for _ in range(batch_size)]

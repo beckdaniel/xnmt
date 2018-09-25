@@ -12,12 +12,9 @@
     dropout: 0.3
   # model architecture
   model: !DefaultTranslator
-    src_reader: !CompoundReader
-      readers:
-        - !PlainTextReader
-          vocab: !Vocab {vocab_file: examples/data/head.ja.vocab}
-        - !AdjListReader
-          vocab: !Vocab {vocab_file: examples/data/edge.vocab}
+    src_reader: !GraphReader
+      node_vocab: !Vocab {vocab_file: examples/data/head.ja.vocab}
+      edge_vocab: !Vocab {vocab_file: examples/data/edge.vocab}
       #vocab: !Vocab {vocab_file: examples/data/head.ja.vocab}
     trg_reader: !PlainTextReader
       vocab: !Vocab {vocab_file: examples/data/head.en.vocab}

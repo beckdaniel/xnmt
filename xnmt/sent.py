@@ -1,4 +1,4 @@
-from typing import List, Optional, Sequence, Union
+from typing import List, Optional, Sequence, Union, Tuple
 import functools
 import numbers
 
@@ -242,7 +242,86 @@ class SegmentedSentence(SimpleSentence):
                              pad_token=self.pad_token,
                              segment=self.segment)
 
+  
+class GraphSentence(ReadableSentence):
+  """
+  A single graph, containing three lists. A list of labelled nodes, a list of labelled edges and a
+  list of (src, trg) indices. The (src, trg) indices correspond to nodes and the position in the list
+  correspond to the edge label in the edge list (therefore len(edges) == len(indices)).
 
+  Args:
+    nodes: list of integer node ids
+    edges: list of integer edge ids
+    indices: list of (src, trg) integer tuples
+    idx: running sentence number (0-based; unique among sentences loaded from the same file, but not across files)
+    node_vocab: optionally vocab mapping node ids to strings
+    edge_vocab: optionally vocab mapping edge ids to strings
+    score: a score given to this sentence by a model
+    output_procs: output processors to be applied when calling sent_str()
+    pad_token: special token used for padding
+  """
+  def __init__(self,
+               nodes: Sequence[numbers.Integral],
+               edges: Sequence[numbers.Integral],
+               indices: Sequence[Tuple[numbers.Integral, numbers.Integral]],
+               idx: Optional[numbers.Integral] = None,
+               node_vocab: Optional[Vocab] = None,
+               edge_vocab: Optional[Vocab] = None,
+               score: Optional[numbers.Real] = None,
+               output_procs: Union[OutputProcessor, Sequence[OutputProcessor]] = [],
+               pad_token: numbers.Integral = Vocab.ES) -> None:
+    super().__init__(idx=idx, score=score, output_procs=output_procs)
+    self.pad_token = pad_token
+    self.nodes = nodes
+    self.edges = edges
+    self.indices = indices
+    self.node_vocab = node_vocab
+    self.edge_vocab = edge_vocab
+
+  def __getitem__(self, key):
+    ret = self.words[key]
+    if isinstance(ret, list):  # support for slicing
+      return SimpleSentence(words=ret, idx=self.idx, vocab=self.vocab, score=self.score, output_procs=self.output_procs,
+                            pad_token=self.pad_token)
+    return self.words[key]
+
+  def sent_len(self):
+    return len(self.words)
+
+  @functools.lru_cache(maxsize=1)
+  def len_unpadded(self):
+    return sum(x != self.pad_token for x in self.words)
+
+  def create_padded_sent(self, pad_len: numbers.Integral) -> 'SimpleSentence':
+    if pad_len == 0:
+      return self
+    return self.sent_with_new_words(self.words + [self.pad_token] * pad_len)
+
+  def create_truncated_sent(self, trunc_len: numbers.Integral) -> 'SimpleSentence':
+    if trunc_len == 0:
+      return self
+    return self.sent_with_words(self.words[:-trunc_len])
+
+  def str_tokens(self, exclude_ss_es=True, exclude_unk=False, exclude_padded=True, **kwargs) -> List[str]:
+    exclude_set = set()
+    if exclude_ss_es:
+      exclude_set.add(Vocab.SS)
+      exclude_set.add(Vocab.ES)
+    if exclude_unk: exclude_set.add(self.vocab.unk_token)
+    # TODO: exclude padded if requested (i.e., all </s> tags except for the first)
+    ret_toks =  [w for w in self.words if w not in exclude_set]
+    if self.vocab: return [self.vocab[w] for w in ret_toks]
+    else: return [str(w) for w in ret_toks]
+
+  def sent_with_new_words(self, new_words):
+    return SimpleSentence(words=new_words,
+                          idx=self.idx,
+                          vocab=self.vocab,
+                          score=self.score,
+                          output_procs=self.output_procs,
+                          pad_token=self.pad_token)
+
+  
 class ArraySentence(Sentence):
   """
   A sentence based on a numpy array containing a continuous-space vector for each token.
