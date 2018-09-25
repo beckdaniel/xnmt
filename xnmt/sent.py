@@ -279,11 +279,17 @@ class GraphSentence(ReadableSentence):
     self.edge_vocab = edge_vocab
 
   def __getitem__(self, key):
-    ret = self.words[key]
-    if isinstance(ret, list):  # support for slicing
-      return SimpleSentence(words=ret, idx=self.idx, vocab=self.vocab, score=self.score, output_procs=self.output_procs,
-                            pad_token=self.pad_token)
-    return self.words[key]
+    #ret = self.words[key]
+    nodes_ret = self.nodes[key]
+    edges_ret = self.edges[key]
+    indices_ret = self.indices[key]
+    if isinstance(nodes_ret, list):  # support for slicing
+      return GraphSentence(nodes=nodes_ret, edges=edges_ret, indices=indices_ret,
+                           idx=self.idx, node_vocab=self.node_vocab,
+                           edge_vocab=self.edge_vocab,
+                           score=self.score, output_procs=self.output_procs,
+                           pad_token=self.pad_token)
+    return (nodes_ret, edges_ret, indices_ret)
 
   def sent_len(self):
     return len(self.words)
