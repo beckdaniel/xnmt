@@ -23,8 +23,11 @@
     src_embedder: !GraphEmbedder
       node_emb_dim: 512
       edge_emb_dim: 32
-    encoder: !BiLSTMSeqTransducer
-      layers: 1
+    encoder: !GraphMLPTransducer
+      node_hidden_dim: 512
+      edge_hidden_dim: 32
+#    encoder: !BiLSTMSeqTransducer
+#      layers: 1
     attender: !MlpAttender
       hidden_dim: 512
       state_dim: 512

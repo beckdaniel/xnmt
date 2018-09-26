@@ -376,13 +376,23 @@ class GraphEmbedder(Embedder, Serializable):
     node_embs = []
     for node in x[0].nodes:
       node_embs.append(self.node_embeddings[node])
-    edge_embs = self.edge_embeddings.batch(x[0].edges)
+    edge_embs = []
+    for edge in x[0].edges:
+      edge_embs.append(self.edge_embeddings[edge])
+    adj_list = []
+    for adj in x[0].indices:
+      adj_list.append(dy.inputTensor(list(adj)))
     #return node_embs#, edge_embs
     #print(self.node_embeddings.as_array())
     #print(node_embs)
     #print(node_embs.npvalue().shape)
     #node_embs = dy.transpose(node_embs)
-    return expression_seqs.ExpressionSequence(expr_list=node_embs, mask=x.mask if batchers.is_batched(x) else None)
+    return [expression_seqs.ExpressionSequence(expr_list=node_embs,
+                                               mask=x.mask if batchers.is_batched(x) else None),
+            expression_seqs.ExpressionSequence(expr_list=edge_embs,
+                                               mask=x.mask if batchers.is_batched(x) else None),
+            expression_seqs.ExpressionSequence(expr_list=adj_list,
+                                               mask=x.mask if batchers.is_batched(x) else None)]
     #return expression_seqs.ExpressionSequence(expr_list=[node_embs], mask=None)
       
   # def embed(self, x):
