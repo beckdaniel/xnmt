@@ -40,7 +40,7 @@
       transform: !AuxNonLinear
         output_dim: 512
         activation: 'tanh'
-      bridge: !CopyBridge {}
+      bridge: !NoBridge {}
       scorer: !Softmax {}
   # training parameters
   train: !SimpleTrainingRegimen

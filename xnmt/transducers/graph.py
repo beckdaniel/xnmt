@@ -129,8 +129,11 @@ class GraphMLPTransducer(GraphTransducer, Serializable):
     node_aggs = self.node_edge_aggregate(graph)
     new_nodes = self.node_update(graph, node_aggs)
 
+    # Build a new ExpressionSequence
+    self.nodes_ret = expression_seqs.ExpressionSequence(expr_tensor=new_nodes)
     # Adj list does not change: just send it forward
-    return (new_nodes, new_edges, graph[2])
+    #return (new_nodes, new_edges, graph[2], graph[3])
+    return self.nodes_ret
 
   def edge_update(self, graph: Tuple['expression_seqs.ExpressionSequence',
                                      'expression_seqs.ExpressionSequence',
@@ -170,13 +173,13 @@ class GraphMLPTransducer(GraphTransducer, Serializable):
     # Vectorise this will prove tricky...
 
     node_aggs = []
-    print(nodes.dim())
+    #print(nodes.dim())
     for i, node in enumerate(nodes):
       # TODO: consider source nodes as well
       edge_indices = np.argwhere(trg_adj == i)
       node_agg = dy.sum_dim(dy.select_cols(edges, edge_indices), [1])
       node_aggs.append(node_agg)
-    print([n.dim() for n in node_aggs])
+    #print([n.dim() for n in node_aggs])
     #print(len(nodes))
     return expression_seqs.ExpressionSequence(node_aggs)
   #raise NotImplementedError("GraphTransducer.node_edge_aggregate() must be implemented by Transducer sub-classes")
@@ -206,5 +209,5 @@ class GraphMLPTransducer(GraphTransducer, Serializable):
     """Returns:
          A list of FinalTransducerState objects corresponding to a fixed-dimension representation of the input, after having invoked transduce()
     """
-    return None
+    return [transducers.FinalTransducerState(main_expr=self.nodes_ret.as_tensor())]
     #raise NotImplementedError("SeqTransducer.get_final_states() must be implemented by SeqTransducer sub-classes")
