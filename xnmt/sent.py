@@ -263,7 +263,8 @@ class GraphSentence(ReadableSentence):
   def __init__(self,
                nodes: Sequence[numbers.Integral],
                edges: Sequence[numbers.Integral],
-               indices: Sequence[Tuple[numbers.Integral, numbers.Integral]],
+               src_indices: Sequence[numbers.Integral],
+               trg_indices: Sequence[numbers.Integral],
                idx: Optional[numbers.Integral] = None,
                node_vocab: Optional[Vocab] = None,
                edge_vocab: Optional[Vocab] = None,
@@ -274,7 +275,8 @@ class GraphSentence(ReadableSentence):
     self.pad_token = pad_token
     self.nodes = nodes
     self.edges = edges
-    self.indices = indices
+    self.src_indices = np.array(src_indices)
+    self.trg_indices = np.array(trg_indices)
     self.node_vocab = node_vocab
     self.edge_vocab = edge_vocab
 
@@ -319,12 +321,16 @@ class GraphSentence(ReadableSentence):
       # TODO: this is so wrong...
       # we need somehow to tell the network that these indices should be ignored
       # having "-1" might be enough but it can also mistakenly index the last node...
-      new_indices = self.indices + ([(-1, -1)] * (pad_len + diff))
+      new_src_indices = self.src_indices + ([(-1, -1)] * (pad_len + diff))
+      new_trg_indices = self.trg_indices + ([(-1, -1)] * (pad_len + diff))
     else:
       new_nodes = self.nodes + ([self.pad_token] * (pad_len + diff))
       new_edges = self.edges + ([self.pad_token] * pad_len)
-      new_indices = self.indices + ([(-1, -1)] * pad_len)
-    return GraphSentence(nodes=new_nodes, edges=new_edges, indices=new_indices,
+      new_src_indices = self.src_indices + ([(-1, -1)] * pad_len)
+      new_trg_indices = self.trg_indices + ([(-1, -1)] * pad_len)
+    return GraphSentence(nodes=new_nodes, edges=new_edges,
+                         src_indices=new_src_indices,
+                         trg_indices=new_trg_indices,
                          idx=self.idx, node_vocab=self.node_vocab,
                          edge_vocab=self.edge_vocab,
                          score=self.score, output_procs=self.output_procs,

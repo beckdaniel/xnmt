@@ -1,5 +1,7 @@
 from typing import List, Tuple
+import numbers
 
+import numpy as np
 import dynet as dy
 
 from xnmt import expression_seqs
@@ -116,63 +118,93 @@ class GraphMLPTransducer(GraphTransducer, Serializable):
 
   def transduce(self, graph: Tuple['expression_seqs.ExpressionSequence',
                                    'expression_seqs.ExpressionSequence',
-                                   'expression_seqs.ExpressionSequence']
+                                   List[numbers.Integral],
+                                   List[numbers.Integral]]
+                                   #'expression_seqs.ExpressionSequence']
   ) -> Tuple['expression_seqs.ExpressionSequence',
              'expression_seqs.ExpressionSequence',
              'expression_seqs.ExpressionSequence']:
 
     new_edges = self.edge_update(graph)
-    node_edge_agg = self.node_edge_aggregation(graph)
-    new_nodes = self.node_update(graph)
+    node_aggs = self.node_edge_aggregate(graph)
+    new_nodes = self.node_update(graph, node_aggs)
 
     # Adj list does not change: just send it forward
     return (new_nodes, new_edges, graph[2])
 
   def edge_update(self, graph: Tuple['expression_seqs.ExpressionSequence',
                                      'expression_seqs.ExpressionSequence',
-                                     'expression_seqs.ExpressionSequence']
+                                     List[numbers.Integral],
+                                     List[numbers.Integral]]
   ) -> 'expression_seqs.ExpressionSequence':
-    nodes, edges, adj = graph
+    nodes, edges, src_adj, trg_adj = graph
     nodes = nodes.as_tensor()
     edges = edges.as_tensor()
-    #adj = dy.transpose(adj.as_tensor())
-    adj = adj.as_tensor()
     edge_W = dy.parameter(self.edge_W)
     edge_b = dy.parameter(self.edge_b)
 
     # For each *edge*, get its source and target node vectors.
     # Then, append these to the current edge vector.
     # This forms the input to the MLP, which outputs a new edge vector.
-    src_nodes = dy.select_cols(nodes, adj[0].npvalue())
-    trg_nodes = dy.select_cols(nodes, adj[1].npvalue())
+    src_nodes = dy.select_cols(nodes, src_adj)
+    trg_nodes = dy.select_cols(nodes, trg_adj)
     input_expr = dy.concatenate([edges, src_nodes, trg_nodes], d=0)
     ret = dy.affine_transform([edge_b, edge_W, input_expr])
     return self.activation(ret)
 
   def node_edge_aggregate(self, graph: Tuple['expression_seqs.ExpressionSequence',
                                              'expression_seqs.ExpressionSequence',
-                                             'expression_seqs.ExpressionSequence']
+                                             List[numbers.Integral],
+                                             List[numbers.Integral]]
   ) -> 'expression_seqs.ExpressionSequence':
     """
     Aggregate edge hidden vectors per node
     """
-    nodes, edges, adj = graph
+    nodes, edges, src_adj, trg_adj = graph
     nodes = nodes.as_tensor()
+    nodes = dy.transpose(nodes)
     edges = edges.as_tensor()
-    adj = adj.as_tensor()
-    trg = adj[1]
     
     # For each *node*, get the edges that point to it.
     # We probs need a for loop here because number of edges per node can vary.
     # Vectorise this will prove tricky...
-    
-    raise NotImplementedError("GraphTransducer.node_edge_aggregate() must be implemented by Transducer sub-classes")
+
+    node_aggs = []
+    print(nodes.dim())
+    for i, node in enumerate(nodes):
+      # TODO: consider source nodes as well
+      edge_indices = np.argwhere(trg_adj == i)
+      node_agg = dy.sum_dim(dy.select_cols(edges, edge_indices), [1])
+      node_aggs.append(node_agg)
+    print([n.dim() for n in node_aggs])
+    #print(len(nodes))
+    return expression_seqs.ExpressionSequence(node_aggs)
+  #raise NotImplementedError("GraphTransducer.node_edge_aggregate() must be implemented by Transducer sub-classes")
   
   def node_update(self, graph: Tuple['expression_seqs.ExpressionSequence',
                                      'expression_seqs.ExpressionSequence',
-                                     'expression_seqs.ExpressionSequence']
+                                     List[numbers.Integral],
+                                     List[numbers.Integral]],
+                  node_aggs
   ) -> 'expression_seqs.ExpressionSequence':
     """
     Update node hidden vectors
     """
-    raise NotImplementedError("GraphTransducer.node_update() must be implemented by Transducer sub-classes")
+    nodes, edges, src_adj, trg_adj = graph
+    nodes = nodes.as_tensor()
+    node_aggs = node_aggs.as_tensor()
+    node_W = dy.parameter(self.node_W)
+    node_b = dy.parameter(self.node_b)
+
+    # For each *node*, get it corresponding aggregated vector,
+    # concatenate both and pass through an MLP
+    input_expr = dy.concatenate([nodes, node_aggs], d=0)
+    ret = dy.affine_transform([node_b, node_W, input_expr])
+    return self.activation(ret)
+    #raise NotImplementedError("GraphTransducer.node_update() must be implemented by Transducer sub-classes")
+  def get_final_states(self):
+    """Returns:
+         A list of FinalTransducerState objects corresponding to a fixed-dimension representation of the input, after having invoked transduce()
+    """
+    return None
+    #raise NotImplementedError("SeqTransducer.get_final_states() must be implemented by SeqTransducer sub-classes")

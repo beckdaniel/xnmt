@@ -213,14 +213,16 @@ class GraphReader(InputReader, Serializable):
         #print(nodes)
         #print(adj)
         enc_nodes = [self.node_vocab.convert(node) for node in nodes.strip().split()]
-        edges, indices = self._split_adj(adj)
+        edges, src_indices, trg_indices = self._split_adj(adj)
         # print(len(nodes))
         # print(len(enc_nodes))
         #print(enc_nodes)
         #print(edges)
         #print(indices)
         try:
-          yield GraphSentence(nodes=enc_nodes, edges=edges, indices=indices,
+          yield GraphSentence(nodes=enc_nodes, edges=edges,
+                              src_indices=src_indices,
+                              trg_indices=trg_indices,
                               node_vocab=self.node_vocab,
                               edge_vocab=self.edge_vocab,
                               output_procs=self.output_procs)
@@ -233,12 +235,14 @@ class GraphReader(InputReader, Serializable):
     """
     tuples = adj.split()
     edges = []
-    indices = []
+    src_indices = []
+    trg_indices = []
     for tup in tuples:
       src_id, trg_id, label = tup.strip('()').split(',')
       edges.append(self.edge_vocab.convert(label))
-      indices.append((int(src_id), int(trg_id)))
-    return edges, indices
+      src_indices.append(int(src_id))
+      trg_indices.append(int(trg_id))
+    return edges, src_indices, trg_indices
         
   @lru_cache(maxsize=128)      
   def count_sents(self, filename) -> int:
