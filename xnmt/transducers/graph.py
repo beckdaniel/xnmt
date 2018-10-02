@@ -125,9 +125,14 @@ class GraphMLPTransducer(GraphTransducer, Serializable):
              'expression_seqs.ExpressionSequence',
              'expression_seqs.ExpressionSequence']:
 
-    new_edges = self.edge_update(graph)
-    node_aggs = self.node_edge_aggregate(graph)
-    new_nodes = self.node_update(graph, node_aggs)
+    # Make everything a tensor
+    nodes, edges, src_adj, trg_adj = graph
+    nodes = nodes.as_tensor()
+    edges = edges.as_tensor()
+    
+    new_edges = self.edge_update(nodes, edges, src_adj, trg_adj)
+    node_aggs = self.node_edge_aggregate(nodes, edges, src_adj, trg_adj)
+    new_nodes = self.node_update(nodes, node_aggs)
 
     # Build a new ExpressionSequence
     self.nodes_ret = expression_seqs.ExpressionSequence(expr_tensor=new_nodes)
@@ -135,14 +140,14 @@ class GraphMLPTransducer(GraphTransducer, Serializable):
     #return (new_nodes, new_edges, graph[2], graph[3])
     return self.nodes_ret
 
-  def edge_update(self, graph: Tuple['expression_seqs.ExpressionSequence',
-                                     'expression_seqs.ExpressionSequence',
-                                     List[numbers.Integral],
-                                     List[numbers.Integral]]
-  ) -> 'expression_seqs.ExpressionSequence':
-    nodes, edges, src_adj, trg_adj = graph
-    nodes = nodes.as_tensor()
-    edges = edges.as_tensor()
+  def edge_update(self,
+                  nodes,
+                  edges,
+                  src_adj,
+                  trg_adj) -> 'expression_seqs.ExpressionSequence':
+    """
+    Update edge vectors using a MLP.
+    """
     edge_W = dy.parameter(self.edge_W)
     edge_b = dy.parameter(self.edge_b)
 
@@ -155,46 +160,34 @@ class GraphMLPTransducer(GraphTransducer, Serializable):
     ret = dy.affine_transform([edge_b, edge_W, input_expr])
     return self.activation(ret)
 
-  def node_edge_aggregate(self, graph: Tuple['expression_seqs.ExpressionSequence',
-                                             'expression_seqs.ExpressionSequence',
-                                             List[numbers.Integral],
-                                             List[numbers.Integral]]
-  ) -> 'expression_seqs.ExpressionSequence':
+  def node_edge_aggregate(self,
+                          nodes,
+                          edges,
+                          src_adj,
+                          trg_adj) -> 'expression_seqs.ExpressionSequence':
     """
     Aggregate edge hidden vectors per node
     """
-    nodes, edges, src_adj, trg_adj = graph
-    nodes = nodes.as_tensor()
     nodes = dy.transpose(nodes)
-    edges = edges.as_tensor()
     
     # For each *node*, get the edges that point to it.
     # We probs need a for loop here because number of edges per node can vary.
     # Vectorise this will prove tricky...
 
     node_aggs = []
-    #print(nodes.dim())
     for i, node in enumerate(nodes):
       # TODO: consider source nodes as well
       edge_indices = np.argwhere(trg_adj == i)
       node_agg = dy.sum_dim(dy.select_cols(edges, edge_indices), [1])
       node_aggs.append(node_agg)
-    #print([n.dim() for n in node_aggs])
-    #print(len(nodes))
     return expression_seqs.ExpressionSequence(node_aggs)
-  #raise NotImplementedError("GraphTransducer.node_edge_aggregate() must be implemented by Transducer sub-classes")
   
-  def node_update(self, graph: Tuple['expression_seqs.ExpressionSequence',
-                                     'expression_seqs.ExpressionSequence',
-                                     List[numbers.Integral],
-                                     List[numbers.Integral]],
-                  node_aggs
-  ) -> 'expression_seqs.ExpressionSequence':
+  def node_update(self,
+                  nodes,
+                  node_aggs) -> 'expression_seqs.ExpressionSequence':
     """
     Update node hidden vectors
     """
-    nodes, edges, src_adj, trg_adj = graph
-    nodes = nodes.as_tensor()
     node_aggs = node_aggs.as_tensor()
     node_W = dy.parameter(self.node_W)
     node_b = dy.parameter(self.node_b)
@@ -204,10 +197,13 @@ class GraphMLPTransducer(GraphTransducer, Serializable):
     input_expr = dy.concatenate([nodes, node_aggs], d=0)
     ret = dy.affine_transform([node_b, node_W, input_expr])
     return self.activation(ret)
-    #raise NotImplementedError("GraphTransducer.node_update() must be implemented by Transducer sub-classes")
+
   def get_final_states(self):
-    """Returns:
-         A list of FinalTransducerState objects corresponding to a fixed-dimension representation of the input, after having invoked transduce()
     """
-    return [transducers.FinalTransducerState(main_expr=self.nodes_ret.as_tensor())]
-    #raise NotImplementedError("SeqTransducer.get_final_states() must be implemented by SeqTransducer sub-classes")
+    This just returns the first node as a dummy final state. A Graph Encoder
+    should *always* be used with a "NoBridge".
+    TODO: enforce this constraint in code
+    TODO: add some flexibility here? Sentences still have a final word.
+    """
+    return [transducers.FinalTransducerState(main_expr=self.nodes_ret[0])]
+
