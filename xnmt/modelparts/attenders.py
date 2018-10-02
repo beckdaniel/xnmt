@@ -197,3 +197,56 @@ class BilinearAttender(Attender, Serializable):
     return self.I * attention
 
 
+class GraphAttender(Attender, Serializable):
+  """
+  This implements two attention heads, one over nodes and another one over edges.
+  TODO: implement more clever attention, such as soft tying between nodes and
+  its edges.
+  """
+  
+  yaml_tag = '!GraphAttender'
+
+  @serializable_init
+  def __init__(self,
+               node_input_dim: numbers.Integral = Ref("exp_global.default_layer_dim"),
+               edge_input_dim: numbers.Integral = Ref("exp_global.default_layer_dim"),
+               state_dim: numbers.Integral = Ref("exp_global.default_layer_dim"),
+               param_init: param_initializers.ParamInitializer = Ref("exp_global.param_init", default=bare(param_initializers.GlorotInitializer)),
+               truncate_dec_batches: bool = Ref("exp_global.truncate_dec_batches", default=False)) -> None:
+    if truncate_dec_batches: raise NotImplementedError("truncate_dec_batches not yet implemented for BilinearAttender")
+    self.node_input_dim = node_input_dim
+    self.edge_input_dim = edge_input_dim
+    self.state_dim = state_dim
+    param_collection = param_collections.ParamManager.my_params(self)
+    #self.node_pWa = param_collection.add_parameters((node_input_dim, state_dim), init=param_init.initializer((node_input_dim, state_dim)))
+    #self.edge_pWa = param_collection.add_parameters((edge_input_dim, state_dim), init=param_init.initializer((edge_input_dim, state_dim)))
+    self.node_pWa = param_collection.add_parameters((state_dim, node_input_dim), init=param_init.initializer((state_dim, node_input_dim)))
+    self.edge_pWa = param_collection.add_parameters((state_dim, edge_input_dim), init=param_init.initializer((state_dim, edge_input_dim)))
+    self.curr_sent = None
+
+  def init_sent(self, sent: ExpressionSequence):
+    self.curr_sent = sent
+    self.attention_vecs = []
+    self.node_I = self.curr_sent[0].as_tensor()
+    self.edge_I = self.curr_sent[1].as_tensor()
+
+  # TODO(philip30): Please apply masking here
+  def calc_attention(self, state):
+    logger.warning("BilinearAttender does currently not do masking, which may harm training results.")
+    node_Wa = dy.parameter(self.node_pWa)
+    edge_Wa = dy.parameter(self.edge_pWa)
+    
+    node_scores = (dy.transpose(state) * node_Wa) * self.node_I
+    node_normalized = dy.softmax(node_scores)
+    edge_scores = (dy.transpose(state) * edge_Wa) * self.edge_I
+    edge_normalized = dy.softmax(edge_scores)
+    self.attention_vecs.append((node_normalized, edge_normalized))
+    return (dy.transpose(node_normalized), dy.transpose(edge_normalized))
+
+  def calc_context(self, state):
+    #attention = self.calc_attention(state)
+    node_att, edge_att = self.calc_attention(state)
+    node_ctx = self.node_I * node_att
+    edge_ctx = self.edge_I * edge_att
+    return dy.concatenate([node_ctx, edge_ctx])
+    #return self.I * attention

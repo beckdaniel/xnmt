@@ -26,18 +26,22 @@
     encoder: !GraphMLPTransducer
       node_hidden_dim: 512
       edge_hidden_dim: 32
-#    encoder: !BiLSTMSeqTransducer
-#      layers: 1
-    attender: !MlpAttender
-      hidden_dim: 512
-      state_dim: 512
-      input_dim: 512
+      layers: 8
+    attender: !GraphAttender
+      node_input_dim: 512
+      edge_input_dim: 32
+      state_dim: 256
+    #attender: !BilinearAttender
+    #  hidden_dim: 512
+    #  state_dim: 256
+    #  input_dim: 512
     trg_embedder: !SimpleWordEmbedder
       emb_dim: 512
     decoder: !AutoRegressiveDecoder
       rnn: !UniLSTMSeqTransducer
         layers: 1
       transform: !AuxNonLinear
+        input_dim: 544
         output_dim: 512
         activation: 'tanh'
       bridge: !NoBridge {}

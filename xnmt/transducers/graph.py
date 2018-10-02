@@ -91,7 +91,7 @@ class GraphMLPTransducer(GraphTransducer, Serializable):
                param_init=Ref("exp_global.param_init", default=bare(GlorotInitializer)),
                bias_init=Ref("exp_global.bias_init", default=bare(ZeroInitializer)),
                activation='relu',
-               output_type='nodes_only'):
+               output_type='nodes_edges'):
     self.num_layers = layers
     self.node_hidden_dim = node_hidden_dim
     self.edge_hidden_dim = edge_hidden_dim
@@ -129,16 +129,26 @@ class GraphMLPTransducer(GraphTransducer, Serializable):
     nodes, edges, src_adj, trg_adj = graph
     nodes = nodes.as_tensor()
     edges = edges.as_tensor()
-    
-    new_edges = self.edge_update(nodes, edges, src_adj, trg_adj)
-    node_aggs = self.node_edge_aggregate(nodes, edges, src_adj, trg_adj)
-    new_nodes = self.node_update(nodes, node_aggs)
+
+    for i in range(self.num_layers):
+      # Get updated nodes and edges
+      new_edges = self.edge_update(nodes, edges, src_adj, trg_adj)
+      node_aggs = self.node_edge_aggregate(nodes, edges, src_adj, trg_adj)
+      new_nodes = self.node_update(nodes, node_aggs)
+      # Update
+      nodes = new_nodes
+      edges = new_edges      
 
     # Build a new ExpressionSequence
-    self.nodes_ret = expression_seqs.ExpressionSequence(expr_tensor=new_nodes)
-    # Adj list does not change: just send it forward
+    self.nodes_ret = expression_seqs.ExpressionSequence(expr_tensor=nodes)
+    # For now we just return nodes (as in Kearnes et al 2016)
+    # TODO: return edges as well, requires a new attender    
     #return (new_nodes, new_edges, graph[2], graph[3])
-    return self.nodes_ret
+    if self.output_type == "nodes_only":
+      return self.nodes_ret
+    else:
+      self.edges_ret = expression_seqs.ExpressionSequence(expr_tensor=edges)
+      return (self.nodes_ret, self.edges_ret)
 
   def edge_update(self,
                   nodes,
