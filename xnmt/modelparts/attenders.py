@@ -232,7 +232,7 @@ class GraphAttender(Attender, Serializable):
 
   # TODO(philip30): Please apply masking here
   def calc_attention(self, state):
-    logger.warning("BilinearAttender does currently not do masking, which may harm training results.")
+    #logger.warning("BilinearAttender does currently not do masking, which may harm training results.")
     node_Wa = dy.parameter(self.node_pWa)
     edge_Wa = dy.parameter(self.edge_pWa)
     

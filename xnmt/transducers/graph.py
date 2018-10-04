@@ -135,12 +135,14 @@ class GraphMLPTransducer(GraphTransducer, Serializable):
       new_edges = self.edge_update(nodes, edges, src_adj, trg_adj)
       node_aggs = self.node_edge_aggregate(nodes, edges, src_adj, trg_adj)
       new_nodes = self.node_update(nodes, node_aggs)
+
       # Update
       nodes = new_nodes
       edges = new_edges      
 
     # Build a new ExpressionSequence
     self.nodes_ret = expression_seqs.ExpressionSequence(expr_tensor=nodes)
+    self.edges_ret = expression_seqs.ExpressionSequence(expr_tensor=edges)
     # For now we just return nodes (as in Kearnes et al 2016)
     # TODO: return edges as well, requires a new attender    
     #return (new_nodes, new_edges, graph[2], graph[3])
@@ -167,7 +169,8 @@ class GraphMLPTransducer(GraphTransducer, Serializable):
     src_nodes = dy.select_cols(nodes, src_adj)
     trg_nodes = dy.select_cols(nodes, trg_adj)
     input_expr = dy.concatenate([edges, src_nodes, trg_nodes], d=0)
-    ret = dy.affine_transform([edge_b, edge_W, input_expr])
+    #ret = dy.affine_transform([edge_b, edge_W, input_expr])
+    ret = (edge_W * input_expr) + edge_b
     return self.activation(ret)
 
   def node_edge_aggregate(self,
@@ -188,7 +191,10 @@ class GraphMLPTransducer(GraphTransducer, Serializable):
     for i, node in enumerate(nodes):
       # TODO: consider source nodes as well
       edge_indices = np.argwhere(trg_adj == i)
-      node_agg = dy.sum_dim(dy.select_cols(edges, edge_indices), [1])
+      if len(edge_indices) == 0:
+        node_agg = dy.zeros(self.edge_hidden_dim,)
+      else:
+        node_agg = dy.sum_dim(dy.select_cols(edges, edge_indices), [1])
       node_aggs.append(node_agg)
     return expression_seqs.ExpressionSequence(node_aggs)
   
@@ -205,7 +211,8 @@ class GraphMLPTransducer(GraphTransducer, Serializable):
     # For each *node*, get it corresponding aggregated vector,
     # concatenate both and pass through an MLP
     input_expr = dy.concatenate([nodes, node_aggs], d=0)
-    ret = dy.affine_transform([node_b, node_W, input_expr])
+    #ret = dy.affine_transform([node_b, node_W, input_expr])
+    ret = (node_W * input_expr) + node_b
     return self.activation(ret)
 
   def get_final_states(self):
