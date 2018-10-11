@@ -92,6 +92,7 @@ class GraphMLPTransducer(GraphTransducer, Serializable):
                bias_init=Ref("exp_global.bias_init", default=bare(ZeroInitializer)),
                activation='relu',
                bidirectional=True,
+               gating=True,
                output_type='nodes_edges'):
     self.num_layers = layers
     self.node_hidden_dim = node_hidden_dim
@@ -104,19 +105,28 @@ class GraphMLPTransducer(GraphTransducer, Serializable):
     self.output_type = output_type
     model = ParamManager.my_params(self)
 
+    # Gating - GRU style
+    # [default, reset, update]
+    if self.gating:
+      edge_dim = edge_hidden_dim * 3
+      node_dim = node_hidden_dim * 3
+    else:
+      edge_dim = edge_hidden_dim
+      node_dim = node_hidden_dim
+    
     # Edge update MLP
     edge_update_dim = edge_hidden_dim + (node_hidden_dim * 2)
-    self.edge_W = model.add_parameters(dim=(edge_hidden_dim, edge_update_dim),
-                                       init=param_init.initializer((edge_hidden_dim, edge_update_dim)))
-    self.edge_b = model.add_parameters(dim=(edge_hidden_dim,),
-                                       init=bias_init.initializer((edge_hidden_dim,)))
+    self.edge_W = model.add_parameters(dim=(edge_dim, edge_update_dim),
+                                       init=param_init.initializer((edge_dim, edge_update_dim)))
+    self.edge_b = model.add_parameters(dim=(edge_dim,),
+                                       init=bias_init.initializer((edge_dim,)))
 
     # Node update MLP
     node_update_dim = node_hidden_dim + edge_hidden_dim
-    self.node_W = model.add_parameters(dim=(node_hidden_dim, node_update_dim),
-                                       init=param_init.initializer((node_hidden_dim, node_update_dim)))
-    self.node_b = model.add_parameters(dim=(node_hidden_dim,),
-                                       init=bias_init.initializer((node_hidden_dim,)))
+    self.node_W = model.add_parameters(dim=(node_dim, node_update_dim),
+                                       init=param_init.initializer((node_dim, node_update_dim)))
+    self.node_b = model.add_parameters(dim=(node_dim,),
+                                       init=bias_init.initializer((node_dim,)))
 
   def transduce(self, graph: Tuple['expression_seqs.ExpressionSequence',
                                    'expression_seqs.ExpressionSequence',
@@ -173,7 +183,10 @@ class GraphMLPTransducer(GraphTransducer, Serializable):
     input_expr = dy.concatenate([edges, src_nodes, trg_nodes], d=0)
     #ret = dy.affine_transform([edge_b, edge_W, input_expr])
     ret = (edge_W * input_expr) + edge_b
-    return self.activation(ret)
+    if self.gating:
+      pass
+    else:
+      return self.activation(ret)
 
   def node_edge_aggregate(self,
                           nodes,
