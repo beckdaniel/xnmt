@@ -91,6 +91,7 @@ class GraphMLPTransducer(GraphTransducer, Serializable):
                param_init=Ref("exp_global.param_init", default=bare(GlorotInitializer)),
                bias_init=Ref("exp_global.bias_init", default=bare(ZeroInitializer)),
                activation='relu',
+               bidirectional=True,
                output_type='nodes_edges'):
     self.num_layers = layers
     self.node_hidden_dim = node_hidden_dim
@@ -99,6 +100,7 @@ class GraphMLPTransducer(GraphTransducer, Serializable):
       self.activation = dy.rectify
     elif activation == 'tanh':
       self.activation = dy.tanh
+    self.bidirectional = bidirectional
     self.output_type = output_type
     model = ParamManager.my_params(self)
 
@@ -187,14 +189,44 @@ class GraphMLPTransducer(GraphTransducer, Serializable):
     # We probs need a for loop here because number of edges per node can vary.
     # Vectorise this will prove tricky...
 
+    # When it is bidirectional, we treat the first half of each edge embedding
+    # as the forward part and the second half as the reverse part.
+    # Otherwise we assume the full hidden vector as forward.
+    
+    if self.bidirectional:
+      edge_dim = self.edge_hidden_dim / 2
+    else:
+      edge_dim = self.edge_hidden_dim
+      
     node_aggs = []
+    
     for i, node in enumerate(nodes):
       # TODO: consider source nodes as well
-      edge_indices = np.argwhere(trg_adj == i)
-      if len(edge_indices) == 0:
-        node_agg = dy.zeros(self.edge_hidden_dim,)
+      trg_edge_indices = np.argwhere(trg_adj == i)
+      if len(trg_edge_indices) == 0:
+        trg_node_agg = dy.zeros(edge_dim,)
       else:
-        node_agg = dy.sum_dim(dy.select_cols(edges, edge_indices), [1])
+        cols = dy.select_cols(edges, trg_edge_indices)
+        #print(cols.npvalue().shape)
+        indexed_cols = dy.pick_range(cols, 0, edge_dim, 0)
+        #print(indexed_cols.npvalue().shape)
+        trg_node_agg = dy.sum_dim(indexed_cols, [1])
+        #print(trg_node_agg.npvalue().shape)
+
+      if self.bidirectional:
+        src_edge_indices = np.argwhere(src_adj == i)
+        if len(src_edge_indices) == 0:
+          src_node_agg = dy.zeros(edge_dim,)
+        else:
+          cols = dy.select_cols(edges, src_edge_indices)
+          indexed_cols = dy.pick_range(cols, edge_dim, edge_dim*2, 0)
+          src_node_agg = dy.sum_dim(indexed_cols, [1])
+          #print(src_node_agg.npvalue().shape)
+        node_agg = dy.concatenate([trg_node_agg, src_node_agg], d=0)
+        #print('NODEAGG')
+        #print(node_agg.npvalue().shape)
+      else:
+        node_agg = trg_node_agg
       node_aggs.append(node_agg)
     return expression_seqs.ExpressionSequence(node_aggs)
   
