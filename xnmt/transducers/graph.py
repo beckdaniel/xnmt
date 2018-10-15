@@ -102,31 +102,38 @@ class GraphMLPTransducer(GraphTransducer, Serializable):
     elif activation == 'tanh':
       self.activation = dy.tanh
     self.bidirectional = bidirectional
+    self.gating = gating
     self.output_type = output_type
     model = ParamManager.my_params(self)
-
-    # Gating - GRU style
-    # [default, reset, update]
-    if self.gating:
-      edge_dim = edge_hidden_dim * 3
-      node_dim = node_hidden_dim * 3
-    else:
-      edge_dim = edge_hidden_dim
-      node_dim = node_hidden_dim
-    
+   
     # Edge update MLP
     edge_update_dim = edge_hidden_dim + (node_hidden_dim * 2)
-    self.edge_W = model.add_parameters(dim=(edge_dim, edge_update_dim),
-                                       init=param_init.initializer((edge_dim, edge_update_dim)))
-    self.edge_b = model.add_parameters(dim=(edge_dim,),
-                                       init=bias_init.initializer((edge_dim,)))
+    self.edge_W = model.add_parameters(dim=(edge_hidden_dim, edge_update_dim),
+                                       init=param_init.initializer((edge_hidden_dim, edge_update_dim)))
+    self.edge_b = model.add_parameters(dim=(edge_hidden_dim,),
+                                       init=bias_init.initializer((edge_hidden_dim,)))
 
     # Node update MLP
     node_update_dim = node_hidden_dim + edge_hidden_dim
-    self.node_W = model.add_parameters(dim=(node_dim, node_update_dim),
-                                       init=param_init.initializer((node_dim, node_update_dim)))
-    self.node_b = model.add_parameters(dim=(node_dim,),
-                                       init=bias_init.initializer((node_dim,)))
+    self.node_W = model.add_parameters(dim=(node_hidden_dim, node_update_dim),
+                                       init=param_init.initializer((node_hidden_dim, node_update_dim)))
+    self.node_b = model.add_parameters(dim=(node_hidden_dim,),
+                                       init=bias_init.initializer((node_hidden_dim,)))
+
+    # Gating - GRU style
+    # single linear transform: [reset, update]
+    if self.gating:
+      self.edge_W_gate = model.add_parameters(dim=(edge_hidden_dim * 2, edge_update_dim),
+                                              init=param_init.initializer((edge_hidden_dim * 2,
+                                                                           edge_update_dim)))
+      self.edge_b_gate = model.add_parameters(dim=(edge_hidden_dim * 2,),
+                                              init=bias_init.initializer((edge_hidden_dim * 2,)))
+      self.node_W_gate = model.add_parameters(dim=(node_hidden_dim * 2, node_update_dim),
+                                              init=param_init.initializer((node_hidden_dim * 2,
+                                                                           node_update_dim)))
+      self.node_b_gate = model.add_parameters(dim=(node_hidden_dim * 2,),
+                                              init=bias_init.initializer((node_hidden_dim * 2,)))
+
 
   def transduce(self, graph: Tuple['expression_seqs.ExpressionSequence',
                                    'expression_seqs.ExpressionSequence',
@@ -174,19 +181,36 @@ class GraphMLPTransducer(GraphTransducer, Serializable):
     """
     edge_W = dy.parameter(self.edge_W)
     edge_b = dy.parameter(self.edge_b)
+    edge_W_gate = dy.parameter(self.edge_W_gate)
+    edge_b_gate = dy.parameter(self.edge_b_gate)
 
     # For each *edge*, get its source and target node vectors.
     # Then, append these to the current edge vector.
     # This forms the input to the MLP, which outputs a new edge vector.
     src_nodes = dy.select_cols(nodes, src_adj)
-    trg_nodes = dy.select_cols(nodes, trg_adj)
-    input_expr = dy.concatenate([edges, src_nodes, trg_nodes], d=0)
+    trg_nodes = dy.select_cols(nodes, trg_adj)    
+    gate_input_expr = dy.concatenate([edges, src_nodes, trg_nodes], d=0)
     #ret = dy.affine_transform([edge_b, edge_W, input_expr])
-    ret = (edge_W * input_expr) + edge_b
+
+    # Calculate edges and reset
     if self.gating:
-      pass
+      gated_output = (edge_W_gate * gate_input_expr) + edge_b_gate
+      gated_output = dy.logistic(gated_output)
+      reset_gate = dy.pick_range(gated_output, 0, self.edge_hidden_dim)
+      update_gate = dy.pick_range(gated_output, self.edge_hidden_dim, self.edge_hidden_dim * 2)
+      reset_edges = dy.cmult(reset_gate, edges)
     else:
-      return self.activation(ret)
+      reset_edges = edges
+
+    # Main standard calculation
+    input_expr = dy.concatenate([reset_edges, src_nodes, trg_nodes], d=0)  
+    ret = (edge_W * input_expr) + edge_b
+
+    # Update edges
+    if self.gating:
+      ret = dy.cmult(update_gate, ret) + dy.cmult((1 - update_gate), edges)
+      
+    return self.activation(ret)
 
   def node_edge_aggregate(self,
                           nodes,
@@ -252,12 +276,32 @@ class GraphMLPTransducer(GraphTransducer, Serializable):
     node_aggs = node_aggs.as_tensor()
     node_W = dy.parameter(self.node_W)
     node_b = dy.parameter(self.node_b)
+    node_W_gate = dy.parameter(self.node_W_gate)
+    node_b_gate = dy.parameter(self.node_b_gate)
 
     # For each *node*, get it corresponding aggregated vector,
     # concatenate both and pass through an MLP
-    input_expr = dy.concatenate([nodes, node_aggs], d=0)
+
+    gate_input_expr = dy.concatenate([nodes, node_aggs], d=0)
+    # Calculate gates and reset nodes
+    if self.gating:
+      gated_output = (node_W_gate * gate_input_expr) + node_b_gate
+      gated_output = dy.logistic(gated_output)
+      reset_gate = dy.pick_range(gated_output, 0, self.node_hidden_dim)
+      update_gate = dy.pick_range(gated_output, self.node_hidden_dim, self.node_hidden_dim * 2)
+      reset_nodes = dy.cmult(reset_gate, nodes)
+    else:
+      reset_nodes = nodes
+
+    # Main calculation
+    input_expr = dy.concatenate([reset_nodes, node_aggs], d=0)
     #ret = dy.affine_transform([node_b, node_W, input_expr])
     ret = (node_W * input_expr) + node_b
+
+    # Update nodes
+    if self.gating:
+      ret = dy.cmult(update_gate, ret) + dy.cmult((1 - update_gate), nodes)
+      
     return self.activation(ret)
 
   def get_final_states(self):
