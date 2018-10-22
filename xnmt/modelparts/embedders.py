@@ -324,6 +324,7 @@ class GraphEmbedder(Embedder, Serializable):
                node_emb_dim: numbers.Integral = Ref("exp_global.default_layer_dim"),
                edge_emb_dim: numbers.Integral = Ref("exp_global.default_layer_dim"),
                weight_noise: numbers.Real = Ref("exp_global.weight_noise", default=0.0),
+               dropout: numbers.Real = Ref("exp_global.dropout", default=0.0),
                word_dropout: numbers.Real = 0.0,
                fix_norm: Optional[numbers.Real] = None,
                param_init: param_initializers.ParamInitializer = Ref("exp_global.param_init", default=bare(
@@ -339,6 +340,7 @@ class GraphEmbedder(Embedder, Serializable):
     self.node_emb_dim = node_emb_dim
     self.edge_emb_dim = edge_emb_dim
     self.weight_noise = weight_noise
+    self.dropout = dropout
     self.word_dropout = word_dropout
     self.fix_norm = fix_norm
     self.word_id_mask = None
@@ -375,10 +377,12 @@ class GraphEmbedder(Embedder, Serializable):
     #node_embs = self.node_embeddings.batch(x[0].nodes)
     node_embs = []
     for node in x[0].nodes:
-      node_embs.append(self.node_embeddings[node])
+      #node_embs.append(self.node_embeddings[node])
+      node_embs.append(dy.dropout(self.node_embeddings[node], self.dropout))
     edge_embs = []
     for edge in x[0].edges:
-      edge_embs.append(self.edge_embeddings[edge])
+      #edge_embs.append(self.edge_embeddings[edge])
+      edge_embs.append(dy.dropout(self.edge_embeddings[edge], self.dropout))
     #adj_list = []
     #for adj in x[0].indices:
     #  adj_list.append(dy.inputTensor(list(adj)))

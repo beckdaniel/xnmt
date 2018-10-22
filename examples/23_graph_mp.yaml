@@ -23,6 +23,7 @@
     src_embedder: !GraphEmbedder
       node_emb_dim: 512
       edge_emb_dim: 32
+      dropout: 0.5
     encoder: !GraphMLPTransducer
       node_hidden_dim: 512
       edge_hidden_dim: 32
