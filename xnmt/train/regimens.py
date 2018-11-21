@@ -182,8 +182,15 @@ class SimpleTrainingRegimen(train_tasks.SimpleTrainingTask, TrainingRegimen, Ser
       assert 0 < self.num_updates_skipped < self.update_every
 
 
-class AutobatchTrainingRegimen(train_tasks.SimpleTrainingTask, TrainingRegimen, Serializable):
+class AutobatchTrainingRegimen(SimpleTrainingRegimen):
   """
+  This regimen overrides SimpleTrainingRegimen by accumulating (summing) losses
+  into a FactoreLossExpr *before* running forward/backward in the computation graph.
+  It is designed to work with DyNet autobatching and when parts of architecture make
+  batching difficult (such as structured encoders like TreeLSTMS or Graph Networks).
+  The actual batch size is set through the "update_every" parameter, while the
+  underlying Batcher is expected to have "batch_size" equal to 1.
+
   Args:
     model: the model
     src_file: the source training file
@@ -215,7 +222,7 @@ class AutobatchTrainingRegimen(train_tasks.SimpleTrainingTask, TrainingRegimen, 
     max_src_len:
     max_trg_len:
     loss_comb_method: method for combining loss across batch elements (``sum`` or ``avg``).
-    update_every: simulate large-batch training by accumulating gradients over several steps before updating parameters
+    update_every: how many instances to accumulate before updating parameters. This effectively sets the batch size under DyNet autobatching.
     commandline_args:
   """
   yaml_tag = '!AutobatchTrainingRegimen'
@@ -268,6 +275,8 @@ class AutobatchTrainingRegimen(train_tasks.SimpleTrainingTask, TrainingRegimen, 
                      max_num_train_sents=max_num_train_sents,
                      max_src_len=max_src_len,
                      max_trg_len=max_trg_len)
+    if batcher.batch_size != 1:
+      raise ValueError("AutobatchTrainingRegimen forces the batcher to have batch_size 1. Use update_every to set the actual batch size in this regimen.")
     self.dev_zero = dev_zero
     self.trainer = trainer or optimizers.SimpleSGDTrainer(e0=0.1)
     self.dynet_profiling = commandline_args.get("dynet_profiling", 0) if commandline_args else 0
@@ -280,6 +289,7 @@ class AutobatchTrainingRegimen(train_tasks.SimpleTrainingTask, TrainingRegimen, 
     """
     Main training loop (overwrites TrainingRegimen.run_training())
     """
+    dy.renew_cg(immediate_compute=settings.IMMEDIATE_COMPUTE, check_validity=settings.CHECK_VALIDITY)
     if self.run_for_epochs is None or self.run_for_epochs > 0:
       total_loss = FactoredLossExpr()
       # Needed for report
@@ -289,52 +299,36 @@ class AutobatchTrainingRegimen(train_tasks.SimpleTrainingTask, TrainingRegimen, 
           self.checkpoint_and_save(save_fct)
           self.dev_zero = False
         with utils.ReportOnException({"src": src, "trg": trg, "graph": utils.print_cg_conditional}):
-          #####
-          if self.num_updates_skipped == 0:
-            dy.renew_cg(immediate_compute=settings.IMMEDIATE_COMPUTE, check_validity=settings.CHECK_VALIDITY)
-          #####
           with self.train_loss_tracker.time_tracker:
             event_trigger.set_train(True)
-            loss_builder = self.training_step(src, trg)
-            #loss = loss_builder.compute()
-            ######
-            #self.backward(loss, self.dynet_profiling)
-            #losses.append(loss)
-            total_loss.add_factored_loss_expr(loss_builder)
-            #self.update(self.trainer)
-            self.update(self.trainer, total_loss)
             total_trg.append(trg[0])
-            ######
+            loss_builder = self.training_step(src, trg)
+            total_loss.add_factored_loss_expr(loss_builder)
+            # num_updates_skipped is incremented in update but
+            # we need to call backward before update
+            if self.num_updates_skipped == self.update_every - 1:
+              self.backward(total_loss.compute(), self.dynet_profiling)
+            self.update(self.trainer)
           if self.num_updates_skipped == 0:
-            #self.train_loss_tracker.report(trg, loss_builder.get_factored_loss_val(comb_method=self.loss_comb_method))
             total_loss_val = total_loss.get_factored_loss_val(comb_method=self.loss_comb_method)
-            #for loss in total_loss_val._loss_dict:
-            #  total_loss_val._loss_dict[loss] /= self.update_every
-            #print(total_loss_val._loss_dict)
-            #print(type(total_trg[0]))
-            #print(total_trg)
             reported_trg = batchers.ListBatch(total_trg)
             self.train_loss_tracker.report(reported_trg, total_loss_val)
             total_loss = FactoredLossExpr()
             total_trg = []
+            dy.renew_cg(immediate_compute=settings.IMMEDIATE_COMPUTE, check_validity=settings.CHECK_VALIDITY)
         if self.checkpoint_needed():
+          # Do a last update before checkpoint
+          # Force forward-backward for the last batch even if it's smaller than update_every
+          self.num_updates_skipped = self.update_every - 1
+          self.backward(total_loss.compute(), self.dynet_profiling)
+          self.update(self.trainer)
+          total_loss_val = total_loss.get_factored_loss_val(comb_method=self.loss_comb_method)
+          reported_trg = batchers.ListBatch(total_trg)
+          self.train_loss_tracker.report(reported_trg, total_loss_val)
+          total_loss = FactoredLossExpr()
+          total_trg = []
           self.checkpoint_and_save(save_fct)
         if self.should_stop_training(): break
-
-  def checkpoint_and_save(self, save_fct):
-    should_save = self.checkpoint()
-    if should_save:
-      save_fct()
-
-  def update(self, trainer: optimizers.XnmtOptimizer,
-             total_loss) -> None:
-    self.num_updates_skipped += 1
-    if self.num_updates_skipped == self.update_every:
-      self.backward(total_loss.compute(), self.dynet_profiling)
-      trainer.update()
-      self.num_updates_skipped = 0
-    else:
-      assert 0 < self.num_updates_skipped < self.update_every
 
 
 class MultiTaskTrainingRegimen(TrainingRegimen):
