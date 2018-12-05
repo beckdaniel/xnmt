@@ -15,6 +15,8 @@ import faulthandler
 faulthandler.enable()
 import traceback
 
+import cProfile, pstats, io
+
 import numpy as np
 from xnmt.settings import settings
 
@@ -99,7 +101,18 @@ def main(overwrite_args=None):
         ParamManager.populate()
 
         # Run the experiment
+
+        #############
+        pr = cProfile.Profile()
+        pr.enable()
         eval_scores = experiment(save_fct = lambda: save_to_file(model_file, experiment))
+        pr.disable()
+        s = io.StringIO()
+        sortby = 'cumulative'
+        ps = pstats.Stats(pr, stream=s).sort_stats(sortby)
+        ps.print_stats()
+        print(s.getvalue())
+        #############
         results.append((experiment_name, eval_scores))
         print_results(results)
 
