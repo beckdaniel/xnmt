@@ -307,7 +307,8 @@ class AutobatchTrainingRegimen(SimpleTrainingRegimen):
             # num_updates_skipped is incremented in update but
             # we need to call backward before update
             if self.num_updates_skipped == self.update_every - 1:
-              self.backward(total_loss.compute(), self.dynet_profiling)
+              computed_loss = total_loss.compute()
+              self.backward(computed_loss, self.dynet_profiling)
             self.update(self.trainer)
           if self.num_updates_skipped == 0:
             total_loss_val = total_loss.get_factored_loss_val(comb_method=self.loss_comb_method)
@@ -320,7 +321,8 @@ class AutobatchTrainingRegimen(SimpleTrainingRegimen):
           # Do a last update before checkpoint
           # Force forward-backward for the last batch even if it's smaller than update_every
           self.num_updates_skipped = self.update_every - 1
-          self.backward(total_loss.compute(), self.dynet_profiling)
+          computed_loss = total_loss.compute()
+          self.backward(computed_loss, self.dynet_profiling)
           self.update(self.trainer)
           total_loss_val = total_loss.get_factored_loss_val(comb_method=self.loss_comb_method)
           reported_trg = batchers.ListBatch(total_trg)
