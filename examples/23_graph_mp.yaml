@@ -31,7 +31,7 @@
     attender: !GraphAttender
       node_input_dim: 512
       edge_input_dim: 32
-      state_dim: 256
+      state_dim: 512
     #attender: !BilinearAttender
     #  hidden_dim: 512
     #  state_dim: 256
@@ -45,7 +45,7 @@
         input_dim: 544
         output_dim: 512
         activation: 'tanh'
-      bridge: !NoBridge {}
+      bridge: !CopyBridge {}
       scorer: !Softmax {}
   # training parameters
   train: !SimpleTrainingRegimen

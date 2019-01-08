@@ -308,10 +308,10 @@ class GraphMLPTransducer(GraphTransducer, Serializable):
 
   def get_final_states(self):
     """
-    This just returns the first node as a dummy final state. A Graph Encoder
-    should *always* be used with a "NoBridge".
-    TODO: enforce this constraint in code
-    TODO: add some flexibility here? Sentences still have a final word.
+    We simply return the sum of the node hidden states as a "final" state.
+    The main use of this is as the initial state for the decoder,
+    using the "CopyBridge" component.
     """
-    return [transducers.FinalTransducerState(main_expr=self.nodes_ret[0])]
+    sum_nodes = dy.sum_dim(self.nodes_ret.as_tensor(), [1])
+    return [transducers.FinalTransducerState(main_expr=sum_nodes)]
 
