@@ -205,12 +205,13 @@ class GraphMLPTransducer(GraphTransducer, Serializable):
     # Main standard calculation
     input_expr = dy.concatenate([reset_edges, src_nodes, trg_nodes], d=0)  
     ret = (edge_W * input_expr) + edge_b
+    ret = self.activation(ret)
 
     # Update edges
     if self.gating:
       ret = dy.cmult(update_gate, ret) + dy.cmult((1 - update_gate), edges)
       
-    return self.activation(ret)
+    return ret
 
   def node_edge_aggregate(self,
                           nodes,
@@ -297,12 +298,13 @@ class GraphMLPTransducer(GraphTransducer, Serializable):
     input_expr = dy.concatenate([reset_nodes, node_aggs], d=0)
     #ret = dy.affine_transform([node_b, node_W, input_expr])
     ret = (node_W * input_expr) + node_b
+    ret = self.activation(ret)
 
     # Update nodes
     if self.gating:
       ret = dy.cmult(update_gate, ret) + dy.cmult((1 - update_gate), nodes)
       
-    return self.activation(ret)
+    return ret
 
   def get_final_states(self):
     """
